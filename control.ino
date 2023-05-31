@@ -1,18 +1,31 @@
 #include <AESLib.h>
 #include <arduino_base64.hpp>
 #include <SoftwareSerial.h>
+#include <RTClib.h>
+
+#define CODE_LENGTH 32
+#define BUTTON 13
+
+SoftwareSerial HC12(2, 3);
+RTC_DS1307 rtc;
 
 extern uint8_t key[];
-SoftwareSerial HC12(2, 3);
 bool run_seed = true;
-long seed;
+unsigned long seed, date_now = 1685550059;
 
 void setup() {
   Serial.begin(9600);
   HC12.begin(9600);
+  
+  pinMode(BUTTON, INPUT_PULLUP);
 }
 
 void loop() {
+
+  if (digitalRead(BUTTON) == LOW) {
+    // Serial.println("Apertou");
+  }
+  
   char c = Serial.read();
 
   if (c == 'a') {
@@ -37,7 +50,11 @@ void loop() {
   }
 
   if (c == 'b') {
-    HC12.write("TwONQYpV05R7C83NrvE0NQ==");
+    HC12.write("NaoNBvY1G5fOFB6br9LdvaZ9TpFua41maTKOPTiDzgM=");
+  }
+
+  if (c == 'c') {
+    resetSeed();
   }
 
   if (HC12.available()) {
@@ -45,10 +62,7 @@ void loop() {
     message = decryptCode(message);
     message.trim();
 
-    // Serial.print("Descriptografado: ");
-    // Serial.println(message);
-
-    if(message == "resetSeed"){
+    if (message == "resetSeed") {
       resetSeed();
       Serial.println("--- Seed resetada ---");
       Serial.println();
@@ -59,14 +73,13 @@ void loop() {
 // Reset seed with time function micros()
 void resetSeed() {
   do {
-    // seed = 301;
     seed = micros() % 65535;
-  } while (seed == 0);
+  } while (seed == 0 || seed == 1);
 
   randomSeed(seed);
 }
 
-// Generate code with structure GJ-00000-0000
+// Generate code with structure GJ-00000-0000-0000000000
 String generateCode() {
   if (run_seed) {
     resetSeed();
@@ -78,18 +91,20 @@ String generateCode() {
   code.concat(number);
   code.concat("-");
   code.concat(seed);
+  code.concat("-");
+  code.concat(date_now);
 
   char *code_char = code.c_str();
 
   return code_char;
 }
 
-// Pads with spaces until the string is 16 characters long
+// Pads with spaces until the string is mod 16 characters long
 String paddingString(String text) {
   char *text_char = text.c_str();
 
-  if (strlen(text_char) <= 16) {
-    for (int i = strlen(text_char); i < 16; i++)
+  if (strlen(text_char) <= CODE_LENGTH) {
+    for (int i = strlen(text_char); i < CODE_LENGTH; i++)
       text.concat(" ");
 
     return text;
@@ -99,13 +114,13 @@ String paddingString(String text) {
 
 // Encrypts a string with AES and base64
 String encryptCode(String code) {
-  char code_char[16];
+  char code_char[CODE_LENGTH];
 
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < CODE_LENGTH; i++) {
     code_char[i] = code.c_str()[i];
   }
 
-  aes128_enc_single(key, code_char);
+  aes128_enc_multiple(key, code_char, sizeof(code_char));
 
   auto code_length = sizeof(code_char);
   char encrypted_code[base64::encodeLength(code_length)];
@@ -121,7 +136,7 @@ String decryptCode(String code) {
   uint8_t decrypted_code[base64::decodeLength(code_char)];
   base64::decode(code_char, decrypted_code);
 
-  aes128_dec_single(key, decrypted_code);
+  aes128_dec_multiple(key, decrypted_code, sizeof(decrypted_code));
 
   return decrypted_code;
 }
