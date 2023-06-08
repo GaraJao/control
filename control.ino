@@ -4,58 +4,56 @@
 #include <RTClib.h>
 
 #define CODE_LENGTH 32
-#define BUTTON 13
+#define BUTTON 9
 
 SoftwareSerial HC12(2, 3);
-RTC_DS1307 rtc;
+RTC_DS1307 RTC;
 
 extern uint8_t key[];
-bool run_seed = true;
-unsigned long seed, date_now = 1685550059;
+extern uint8_t iv[];
+unsigned long seed, random_number;
 
 void setup() {
   Serial.begin(9600);
   HC12.begin(9600);
-  
+
   pinMode(BUTTON, INPUT_PULLUP);
+
+  if (!RTC.begin()) {
+    Serial.println("DS1307 não encontrado");
+    while (true) {}
+  }
+
+  resetSeed();
 }
 
 void loop() {
 
-  if (digitalRead(BUTTON) == LOW) {
-    // Serial.println("Apertou");
-  }
-  
   char c = Serial.read();
 
-  if (c == 'a') {
+  if (digitalRead(BUTTON) == LOW) {
+    Serial.println("Apertou");
+  }
+
+  if (c == 's') { // Send code on type s in serial monitor
     String code = generateCode();
     code = paddingString(code);
 
     Serial.print("Descriptografado: ");
     Serial.println(code);
 
-    if (code != "") {
-      code = encryptCode(code);
+    code = encryptCode(code);
 
-      Serial.print("Criptografado: ");
-      Serial.println(code);
-      Serial.println();
+    Serial.print("Criptografado: ");
+    Serial.println(code);
+    Serial.println();
 
-      char *send_hc12 = code.c_str();
-      HC12.write(send_hc12);
-    } else {
-      Serial.print("Texto muito longo, não suportado.");
-    }
-  }
-
-  if (c == 'b') {
-    HC12.write("NaoNBvY1G5fOFB6br9LdvaZ9TpFua41maTKOPTiDzgM=");
-  }
-
-  if (c == 'c') {
+    char *send_hc12 = code.c_str();
+    HC12.write(send_hc12);
+  } else if (c == 'r') // Reset seed on type r in serial monitor
     resetSeed();
-  }
+  else if (c == 'h') // Print hour on type h in serial monitor
+    printHour();
 
   if (HC12.available()) {
     String message = HC12.readStringUntil("\n");
@@ -72,27 +70,26 @@ void loop() {
 
 // Reset seed with time function micros()
 void resetSeed() {
+  DateTime now = RTC.now();
+
   do {
-    seed = micros() % 65535;
+    seed = now.unixtime() % 65535;
   } while (seed == 0 || seed == 1);
 
-  randomSeed(seed);
+  randomSeedRefactored(seed);
 }
 
-// Generate code with structure GJ-00000-0000-0000000000
+// Generate code with structure GJ-00000-00000-0000000000
 String generateCode() {
-  if (run_seed) {
-    resetSeed();
-    run_seed = false;
-  }
-  long number = random(10000, 99999);
+  DateTime now = RTC.now();
+  long number = randomRefactored(10000, 99999);
 
   String code = "GJ-";
   code.concat(number);
   code.concat("-");
   code.concat(seed);
   code.concat("-");
-  code.concat(date_now);
+  code.concat(now.unixtime());
 
   char *code_char = code.c_str();
 
@@ -120,7 +117,7 @@ String encryptCode(String code) {
     code_char[i] = code.c_str()[i];
   }
 
-  aes128_enc_multiple(key, code_char, sizeof(code_char));
+  aes128_cbc_enc(key, iv, code_char, sizeof(code_char));
 
   auto code_length = sizeof(code_char);
   char encrypted_code[base64::encodeLength(code_length)];
@@ -136,7 +133,49 @@ String decryptCode(String code) {
   uint8_t decrypted_code[base64::decodeLength(code_char)];
   base64::decode(code_char, decrypted_code);
 
-  aes128_dec_multiple(key, decrypted_code, sizeof(decrypted_code));
+  aes128_cbc_dec(key, iv, decrypted_code, sizeof(decrypted_code));
 
   return decrypted_code;
+}
+
+// Refactoring of the randomization algorithm based on Linear congruential generator
+long randomRefactored(long howbig) {
+  if (howbig == 0)
+    return 0;
+
+  random_number = random_number * 1103515245 + 12345;
+  return (unsigned int)(random_number / 65536) % howbig;
+}
+
+// Refactoring of the randomization algorithm based on Linear congruential generator
+long randomRefactored(long howsmall, long howbig) {
+  if (howsmall >= howbig)
+    return howsmall;
+
+  long diff = howbig - howsmall;
+  return randomRefactored(diff) + howsmall;
+}
+
+// Refactoring of the randomization algorithm based on Linear congruential generator
+void randomSeedRefactored(long value) {
+  random_number = value;
+}
+
+// Print date and hour in serial monitor
+void printHour() {
+  DateTime now = RTC.now();
+
+  Serial.print("Data: ");
+  Serial.print(now.day(), DEC);
+  Serial.print('/');
+  Serial.print(now.month(), DEC);
+  Serial.print('/');
+  Serial.print(now.year(), DEC);
+  Serial.print(" / Hora: ");
+  Serial.print(now.hour(), DEC);
+  Serial.print(':');
+  Serial.print(now.minute(), DEC);
+  Serial.print(':');
+  Serial.print(now.second(), DEC);
+  Serial.println();
 }
