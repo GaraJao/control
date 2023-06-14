@@ -4,14 +4,15 @@
 #include <RTClib.h>
 
 #define CODE_LENGTH 32
-#define BUTTON 9
+#define PRESS_INTERVAL 1000
+#define BUTTON 8
 
 SoftwareSerial HC12(2, 3);
 RTC_DS1307 RTC;
 
 extern uint8_t key[];
 extern uint8_t iv[];
-unsigned long seed, random_number;
+unsigned long seed, random_number, previous_time = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -24,18 +25,18 @@ void setup() {
     while (true) {}
   }
 
+  // RTC.adjust(DateTime(F(__DATE__), F("20:58:45")));
+
   resetSeed();
 }
 
 void loop() {
 
   char c = Serial.read();
+  unsigned long current_time = millis();
 
-  if (digitalRead(BUTTON) == LOW) {
-    Serial.println("Apertou");
-  }
-
-  if (c == 's') { // Send code on type s in serial monitor
+  // Send code on type s in serial monitor
+  if (c == 's' || digitalRead(BUTTON) == LOW && current_time - previous_time > PRESS_INTERVAL) {
     String code = generateCode();
     code = paddingString(code);
 
@@ -50,6 +51,8 @@ void loop() {
 
     char *send_hc12 = code.c_str();
     HC12.write(send_hc12);
+    
+    previous_time = current_time;
   } else if (c == 'r') // Reset seed on type r in serial monitor
     resetSeed();
   else if (c == 'h') // Print hour on type h in serial monitor
