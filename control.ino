@@ -25,18 +25,16 @@ void setup() {
     while (true) {}
   }
 
-  // RTC.adjust(DateTime(F(__DATE__), F("20:58:45")));
+  // RTC.adjust(DateTime(F(__DATE__), F("19:09:10")));
 
   resetSeed();
 }
 
 void loop() {
-
-  char c = Serial.read();
   unsigned long current_time = millis();
 
   // Send code on type s in serial monitor
-  if (c == 's' || digitalRead(BUTTON) == LOW && current_time - previous_time > PRESS_INTERVAL) {
+  if (digitalRead(BUTTON) == LOW && current_time - previous_time > PRESS_INTERVAL) {
     String code = generateCode();
     code = paddingString(code);
 
@@ -51,12 +49,23 @@ void loop() {
 
     char *send_hc12 = code.c_str();
     HC12.write(send_hc12);
-    
+
     previous_time = current_time;
-  } else if (c == 'r') // Reset seed on type r in serial monitor
-    resetSeed();
-  else if (c == 'h') // Print hour on type h in serial monitor
-    printHour();
+  }
+
+  if (Serial.available()) {
+    String c = Serial.readStringUntil('\n');
+
+    if (c[0] == 't') {  // Set time by serial monitor
+      c = strtok(c.c_str(), " ");
+      c = strtok(NULL, " ");
+
+      RTC.adjust(DateTime(__DATE__, c.c_str()));
+    } else if (c[0] == 'r')  // Reset seed on type r in serial monitor
+      resetSeed();
+    else if (c[0] == 'h')  // Print hour on type h in serial monitor
+      printHour();
+  }
 
   if (HC12.available()) {
     String message = HC12.readStringUntil("\n");
@@ -76,7 +85,7 @@ void resetSeed() {
   DateTime now = RTC.now();
 
   do {
-    seed = now.unixtime() % 65535;
+    seed = now.unixtime() / millis() % 65535;
   } while (seed == 0 || seed == 1);
 
   randomSeedRefactored(seed);
